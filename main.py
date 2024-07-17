@@ -34,9 +34,11 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
     https_only=True,
-    max_age=3600,  # 3600s = 1hr, the life of spotify access token
+    # 3600s = 1hr, the life of spotify access token
+    max_age=3600,
     same_site="none",
-    domain="127.0.0.1"  # TODO: update to `.{exampleDomain}` when both frontend and backend are deployed on real servers
+    # TODO: update to `.{exampleDomain}` when both frontend and backend are deployed on real servers
+    domain="127.0.0.1",
 )
 
 CLIENT_ID = "5b9ee404632b45f6a6d6cc35824554a6"
@@ -45,7 +47,23 @@ OAUTH_REDIRECT_URI = "http://127.0.0.1:3000/callback"
 SCOPE = "playlist-read-private playlist-read-collaborative user-read-private user-read-email"
 
 # Docs: https://spotipy.readthedocs.io/en/2.24.0/#module-spotipy.oauth2
-sp_oauth = SpotifyOAuth(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, redirect_uri=OAUTH_REDIRECT_URI, scope=SCOPE)
+sp_oauth = SpotifyOAuth(
+    client_id=CLIENT_ID, client_secret=CLIENT_SECRET, redirect_uri=OAUTH_REDIRECT_URI, scope=SCOPE
+)
+
+UNWATED_TRACK_KEYS = (
+    "analysis_url",
+    "duration_ms",
+    "key",
+    "liveness",
+    "loudness",
+    "mode",
+    "tempo",
+    "time_signature",
+    "track_href",
+    "type",
+    "uri",
+)
 
 
 class UserResponse(BaseModel):
@@ -56,17 +74,26 @@ class PlaylistResponse(BaseModel):
     name: str
     id: str
 
+
+class MoodResponse(BaseModel):
+    mood: str
+    top_features: list
+    top_tracks: list
+
+
+# TODO: HOW TO PROTECT THIS ENDPOINT??
+# Performs OAuth token exchange using provided auth code from frontend, and creates user session
 @app.post("/spotify-auth", tags=["auth"], status_code=status.HTTP_204_NO_CONTENT)
 def exchange_token(code: str, request: Request):
     # Exchanges token, with check_cache=False to ensure new users can be registered
     token_info = sp_oauth.get_access_token(code=code, check_cache=False)
-    # print(token_info)
     # https://www.starlette.io/middleware/#sessionmiddleware
     # TODO: store whole 'token_info' or no?
     request.session["access_token"] = token_info["access_token"]
     request.session["refresh_token"] = token_info["refresh_token"]
 
 
+# Logs out of user session
 @app.post("/logout", tags=["auth"], status_code=status.HTTP_204_NO_CONTENT)
 def logout_session(
     request: Request,
@@ -94,7 +121,7 @@ def getUserDisplayName(request: Request) -> UserResponse:
     return {"display_name": user["display_name"]}
 
 
-# Retrieves all playlist names and their corresponding ID's for current user
+# Retrieves all playlist names and their corresponding ID's
 @app.get("/playlists", tags=["spotify account"], status_code=status.HTTP_200_OK)
 def getUserPlaylists(request: Request) -> list[PlaylistResponse]:
     access_token = request.session.get("access_token", None)
@@ -112,9 +139,10 @@ def getUserPlaylists(request: Request) -> list[PlaylistResponse]:
         formattedPlaylists.append({"name": playlist["name"], "id": playlist["id"]})
     return formattedPlaylists
 
-# Retrieves all playlist names and their corresponding ID's for current user
+
+# Generates mood for given playlist, and returns top songs that contributed to this mood rating
 @app.get("/mood/{playlistId}", tags=["spotify account"], status_code=status.HTTP_200_OK)
-async def getPlaylistMood(playlistId: str, request: Request):
+async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
     access_token = request.session.get("access_token", None)
     if not access_token:
         raise HTTPException(
@@ -129,18 +157,205 @@ async def getPlaylistMood(playlistId: str, request: Request):
         tracks_response = sp.next(tracks_response)
         tracks.extend(tracks_response["items"])
 
+    # TODO: loop in batches of 100
     track_ids = [track["track"]["id"] for track in tracks]
     audio_features = sp.audio_features(track_ids)
-    danceability = []
-    energy = []
-    valence = []
-    for track_features in audio_features:
-        danceability.append(track_features["danceability"])
-        energy.append(track_features["energy"])
-        valence.append(track_features["valence"])
+    (
+        danceability,
+        energy,
+        valence,
+        acousticness,
+        instrumentalness,
+        speechiness,
+    ) = (
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+    )
 
-    print(danceability)
-    print(energy)
-    print(valence)
-    # TODO: loop through all tracks (in batches of 100), add values for each
-    # return mood
+    for track_features in audio_features:
+        track_id = track_features["id"]
+        danceability[track_id] = track_features["danceability"]
+        energy[track_id] = track_features["energy"]
+        valence[track_id] = track_features["valence"]
+        instrumentalness[track_id] = track_features["instrumentalness"]
+        acousticness[track_id] = track_features["acousticness"]
+        speechiness[track_id] = track_features["speechiness"]
+
+    all_averages = {
+        "danceability": get_avg_for_audio_feature(danceability),
+        "energy": get_avg_for_audio_feature(energy),
+        "valence": get_avg_for_audio_feature(valence),
+        "instrumentalness": get_avg_for_audio_feature(instrumentalness),
+        "acousticness": get_avg_for_audio_feature(acousticness),
+        "speechiness": get_avg_for_audio_feature(speechiness),
+    }
+    # print(averages)
+
+    top_three_features = filter_and_sort_averages(all_averages, 3)
+    mood = weigh_averages_for_mood(top_three_features, **all_averages)
+    print(f"Mood: {mood}")
+
+    # get top 20 songs for each category in top features
+    top_track_ids = set()
+    top_feature_categories = top_three_features.keys()
+    for feature in top_feature_categories:
+        match feature:
+            case "danceability":
+                top_danceable_songs = filter_and_sort_averages(danceability, 20)
+                top_track_ids.update(list(top_danceable_songs.keys()))
+            case "energy":
+                top_energy_songs = filter_and_sort_averages(energy, 20)
+                top_track_ids.update(list(top_energy_songs.keys()))
+            case "valence":
+                top_valence_songs = filter_and_sort_averages(valence, 20)
+                top_track_ids.update(list(top_valence_songs.keys()))
+            case "instrumentalness":
+                top_instrumental_songs = filter_and_sort_averages(instrumentalness, 20)
+                top_track_ids.update(list(top_instrumental_songs.keys()))
+            case "acousticness":
+                top_acoustic_songs = filter_and_sort_averages(acousticness, 20)
+                top_track_ids.update(list(top_acoustic_songs.keys()))
+            case "speechiness":
+                top_speech_songs = filter_and_sort_averages(speechiness, 20)
+                top_track_ids.update(list(top_speech_songs.keys()))
+            case _:
+                raise Exception(f"Invalid audio feature found: {feature}")
+
+    top_audio_features = sp.audio_features(top_track_ids)
+    top_track_details = sp.tracks(top_track_ids)["tracks"]
+    top_tracks = merge_track_details_and_audio_features(top_audio_features, top_track_details)
+
+    # print(top_tracks)
+    return {
+        "mood": mood,
+        "top_features": list(top_feature_categories),
+        "top_tracks": top_tracks,
+    }
+
+
+def get_avg_for_audio_feature(feature: dict[str, float]) -> float:
+    feature_values = feature.values()
+    return sum(feature_values) / len(feature_values)
+
+
+# Filter out averages under 0.45, return top (len) entries
+def filter_and_sort_averages(d: dict[str, str], len: int) -> dict[str, str]:
+    filtered_top_songs = {key: avg for (key, avg) in d.items() if avg >= 0.45}
+    return dict(sorted(filtered_top_songs.items(), key=lambda x: x[1], reverse=True)[:len])
+
+
+# Uses Spotify Audio Features to determine the general mood for the playlist
+# Docs:
+# https://developer.spotify.com/documentation/web-api/reference/get-several-audio-features
+def weigh_averages_for_mood(
+    top_features: dict[str, float],
+    danceability: float,
+    energy: float,
+    valence: float,
+    instrumentalness: float,
+    acousticness: float,
+    speechiness: float,
+):
+    mood_evals = []
+    top_feature_categories = top_features.keys()
+    for feature, feature_avg in top_features.items():
+        mood_info = ""
+        if feature_avg >= 0.75:
+            mood_info += "very "
+        match feature:
+            case "danceability":
+                # EDM
+                if acousticness < 0.4:
+                    mood_info += "bass-heavy, rhythmic"
+                # Rap
+                elif speechiness > 0.33 and speechiness < 0.66:
+                    mood_info += "hip-hop/rap"
+                else:
+                    mood_info += "lively, rhythmic"
+                mood_evals.append(mood_info)
+            case "energy":
+                # Heavy metal
+                if "instrumentalness" in top_feature_categories and valence < 0.5:
+                    mood_info += "dark, heavy"
+                # Jazz
+                elif "instrumentalness" in top_feature_categories and valence >= 0.5:
+                    mood_info += "jazzy, vibrant"
+                else:
+                    mood_info += "high intensity, energetic"
+                mood_evals.append(mood_info)
+            case "instrumentalness":
+                # already handled (above), so skip
+                if "energy" in top_feature_categories:
+                    continue
+                # Joyous orchestral
+                if energy < 0.5 and valence > 0.5:
+                    mood_info += "beautiful, orchestral"
+                # Somber orchestral
+                elif energy < 0.5 and valence < 0.5:
+                    mood_info += "emotional, orchestral"
+                # Chill guitar
+                elif acousticness > 0.5:
+                    mood_info += "chill, acoustic"
+                mood_evals.append(mood_info)
+            case "speechiness":
+                # Podcasts/talk shows
+                if speechiness > 0.66:
+                    mood_info += "talkative, informative"
+                mood_evals.append(mood_info)
+            case "acousticness":
+                # already handled (above), so skip
+                if "instrumentalness" in top_feature_categories:
+                    continue
+                # Sad accoustic
+                if valence < 0.5:
+                    mood_info += "beautiful, sentimental"
+                # Country
+                else:
+                    mood_info += "balladic, folk"
+                mood_evals.append(mood_info)
+            case "valence":
+                # already handled by other categories
+                continue
+            case _:
+                raise Exception(f"Invalid audio feature found: {feature}")
+
+    if len(mood_evals) == 1:
+        return f"A {mood_evals[0]} playlist."
+    if len(mood_evals) == 2:
+        return f"A {mood_evals[0]} playlist with {mood_evals[1]} elements."
+    if len(mood_evals) == 3:
+        return (
+            f"A {mood_evals[0]} playlist, that also has {mood_evals[1]} "
+            f"and {mood_evals[2]} elements."
+        )
+
+
+# Merges audio features (valence, energy, etc) with track details (song name, artist name, etc)
+# Also removes keys that are returned from Spotify API but not used
+def merge_track_details_and_audio_features(
+    top_track_features: list[dict], top_track_details: list[dict]
+) -> list[dict]:
+    top_tracks_merged = []
+    for track_features in top_track_features:
+        cleaned_track = track_features
+        # trim payload by removing unneeded keys
+        for key in UNWATED_TRACK_KEYS:
+            cleaned_track.pop(key, None)
+        track_id = track_features["id"]
+        # https://stackoverflow.com/a/25373204/11972470
+        track_details = list(filter(lambda track: track["id"] == track_id, top_track_details)).pop()
+        track_name = track_details["name"]
+        track_album = track_details["album"]["name"]
+        artists = []
+        for artist_details in track_details["artists"]:
+            artists.append(artist_details["name"])
+        cleaned_track["name"] = track_name
+        cleaned_track["album"] = track_album
+        cleaned_track["artists"] = ", ".join(artists)
+        top_tracks_merged.append(cleaned_track)
+
+    return top_tracks_merged
