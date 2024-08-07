@@ -63,6 +63,7 @@ UNWATED_TRACK_KEYS = (
     "track_href",
     "type",
     "uri",
+    # TODO: remove ID as well?
 )
 
 
@@ -158,7 +159,7 @@ async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
         tracks.extend(tracks_response["items"])
 
     # TODO: loop in batches of 100
-    track_ids = [track["track"]["id"] for track in tracks]
+    track_ids = [track["track"]["id"] for track in tracks][:100]
     audio_features = sp.audio_features(track_ids)
     (
         danceability,
@@ -353,9 +354,11 @@ def merge_track_details_and_audio_features(
         artists = []
         for artist_details in track_details["artists"]:
             artists.append(artist_details["name"])
+        track_url = track_details["external_urls"]["spotify"]
         cleaned_track["name"] = track_name
         cleaned_track["album"] = track_album
         cleaned_track["artists"] = ", ".join(artists)
+        cleaned_track["url"] = track_url
         top_tracks_merged.append(cleaned_track)
 
     return top_tracks_merged
