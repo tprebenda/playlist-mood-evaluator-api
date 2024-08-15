@@ -16,8 +16,8 @@ origins = [
     # "https://127.0.0.1",
     # "http://127.0.0.1:3000",
     # "https://127.0.0.1:3000",
-    "https://playlist-mood-evaluator-ui.fly.dev",
-    "https://playlist-mood-evaluator-ui.fly.dev:3000",
+    "https://playlistmoodevaluator.com",
+    "https://playlistmoodevaluator.com:3000",
 ]
 
 # References for CORS + Session Middleware:
@@ -40,14 +40,14 @@ app.add_middleware(
     # 3600s = 1hr, the life of spotify access token
     max_age=3600,
     same_site="none",
-    # domain="127.0.0.1" # LOCAL DEV
-    domain="playlist-mood-evaluator-ui.fly.dev",
+    # domain="127.0.0.1",  # LOCAL DEV
+    domain=".playlistmoodevaluator.com",
 )
 
 CLIENT_ID = "5b9ee404632b45f6a6d6cc35824554a6"
 CLIENT_SECRET = "920902c5825344b4a9ebf76b4096db3a"
-# OAUTH_REDIRECT_URI = "http://127.0.0.1:3000/callback" # LOCAL DEV
-OAUTH_REDIRECT_URI = "https://playlist-mood-evaluator-ui.fly.dev/callback"
+# OAUTH_REDIRECT_URI = "http://127.0.0.1:3000/callback"  # LOCAL DEV
+OAUTH_REDIRECT_URI = "https://playlistmoodevaluator.com/callback"
 SCOPE = "playlist-read-private playlist-read-collaborative user-read-private user-read-email"
 
 # Docs: https://spotipy.readthedocs.io/en/2.24.0/#module-spotipy.oauth2
