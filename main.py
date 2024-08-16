@@ -17,7 +17,8 @@ origins = [
     # "http://127.0.0.1:3000",
     # "https://127.0.0.1:3000",
     "https://playlistmoodevaluator.com",
-    "https://playlistmoodevaluator.com:3000",
+    "https://www.playlistmoodevaluator.com",
+    "https://api.playlistmoodevaluator.com",
 ]
 
 # References for CORS + Session Middleware:
@@ -31,6 +32,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.add_middleware(
