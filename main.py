@@ -18,7 +18,6 @@ origins = [
     # "https://127.0.0.1:3000",
     "https://playlistmoodevaluator.com",
     "https://www.playlistmoodevaluator.com",
-    "https://api.playlistmoodevaluator.com",
 ]
 
 # References for CORS + Session Middleware:
@@ -41,13 +40,15 @@ app.add_middleware(
     https_only=True,
     # 3600s = 1hr, the life of spotify access token
     max_age=3600,
-    same_site="none",
+    same_site="strict",
     # domain="127.0.0.1",  # LOCAL DEV
     domain=".playlistmoodevaluator.com",
 )
 
 CLIENT_ID = "5b9ee404632b45f6a6d6cc35824554a6"
 CLIENT_SECRET = "920902c5825344b4a9ebf76b4096db3a"
+# OAUTH_REDIRECT_URI needs to be registered in Spotify app hub, despite the fact that we don't use
+# spotipy for the actual OAuth (otherwise Spotify will reject the request)
 # OAUTH_REDIRECT_URI = "http://127.0.0.1:3000/callback"  # LOCAL DEV
 OAUTH_REDIRECT_URI = "https://playlistmoodevaluator.com/callback"
 SCOPE = "playlist-read-private playlist-read-collaborative user-read-private user-read-email"
@@ -165,7 +166,9 @@ async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
         tracks.extend(tracks_response["items"])
 
     # TODO: loop in batches of 100
-    track_ids = [track["track"]["id"] for track in tracks][:100]
+    # Skipping locally uploaded tracks to prevent Spotipy error:
+    # https://github.com/spotipy-dev/spotipy/issues/1156
+    track_ids = [track["track"]["id"] for track in tracks if track["is_local"] is False][:100]
     audio_features = sp.audio_features(track_ids)
     (
         danceability,
@@ -200,11 +203,9 @@ async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
         "acousticness": get_avg_for_audio_feature(acousticness),
         "speechiness": get_avg_for_audio_feature(speechiness),
     }
-    # print(averages)
 
     top_three_features = filter_and_sort_averages(all_averages, 3)
     mood = weigh_averages_for_mood(top_three_features, **all_averages)
-    print(f"Mood: {mood}")
 
     # get top 20 songs for each category in top features
     top_track_ids = set()
@@ -236,7 +237,6 @@ async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
     top_track_details = sp.tracks(top_track_ids)["tracks"]
     top_tracks = merge_track_details_and_audio_features(top_audio_features, top_track_details)
 
-    # print(top_tracks)
     return {
         "mood": mood,
         "top_features": list(top_feature_categories),
