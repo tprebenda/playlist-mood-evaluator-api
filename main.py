@@ -117,16 +117,20 @@ def logout_session(
 # Retrives display name for current user
 @app.get("/user", tags=["spotify account"], status_code=status.HTTP_200_OK)
 def getUserDisplayName(request: Request) -> UserResponse:
-    access_token = request.session.get("access_token", None)
-    if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Must authenticate through Spotify OAuth",
-        )
+    try:
+        access_token = request.session.get("access_token", None)
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Must authenticate through Spotify OAuth",
+            )
 
-    sp = spotipy.Spotify(auth=access_token)
-    user = sp.current_user()
-    return {"display_name": user["display_name"]}
+        sp = spotipy.Spotify(auth=access_token)
+        user = sp.current_user()
+        return {"display_name": user["display_name"]}
+    except Exception as e:
+        if "user may not be registered" in str(e):
+            raise HTTPException(status_code=500, detail="User not registered")
 
 
 # Retrieves all playlist names and their corresponding ID's
@@ -168,7 +172,7 @@ async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
     # TODO: loop in batches of 100
     # Skipping locally uploaded tracks to prevent Spotipy error:
     # https://github.com/spotipy-dev/spotipy/issues/1156
-    track_ids = [track["track"]["id"] for track in tracks if track["is_local"] is False][:100]
+    track_ids = [track["track"]["id"] for track in tracks if not track["is_local"]][:100]
     audio_features = sp.audio_features(track_ids)
     (
         danceability,
