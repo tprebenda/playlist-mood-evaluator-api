@@ -73,6 +73,12 @@ UNWATED_TRACK_KEYS = (
     # TODO: remove ID as well?
 )
 
+DUD_MOOD_RESPONSE = {
+    "mood": "No Mood (No Tracks Found). Playlist is either empty or a specialized playlist.",
+    "top_features": ["none"],
+    "top_tracks": [],
+}
+
 
 class UserResponse(BaseModel):
     display_name: str
@@ -146,10 +152,11 @@ def getUserPlaylists(request: Request) -> list[PlaylistResponse]:
     sp = spotipy.Spotify(auth=access_token)
     playlists = sp.current_user_playlists()["items"]
 
-    formattedPlaylists = []
-    for playlist in playlists:
-        formattedPlaylists.append({"name": playlist["name"], "id": playlist["id"]})
-    return formattedPlaylists
+    return [
+        {"name": playlist["name"], "id": playlist["id"]}
+        for playlist in playlists
+        if playlist["tracks"]["total"] > 0
+    ]
 
 
 # Generates mood for given playlist, and returns top songs that contributed to this mood rating
@@ -169,11 +176,19 @@ async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
         tracks_response = sp.next(tracks_response)
         tracks.extend(tracks_response["items"])
 
-    # TODO: loop in batches of 100
-    # Skipping locally uploaded tracks to prevent Spotipy error:
+    # Skip invalid tracks, or locally uploaded tracks to prevent Spotipy error:
     # https://github.com/spotipy-dev/spotipy/issues/1156
-    track_ids = [track["track"]["id"] for track in tracks if not track["is_local"]][:100]
-    audio_features = sp.audio_features(track_ids)
+    track_ids = [
+        track["track"]["id"]
+        for track in tracks
+        if track["track"] and track["track"]["id"] and not track["is_local"]
+    ]
+
+    if not track_ids:
+        return DUD_MOOD_RESPONSE
+    # TODO: loop in batches of 100
+    audio_features = sp.audio_features(track_ids[:100])
+
     (
         danceability,
         energy,
@@ -339,10 +354,7 @@ def weigh_averages_for_mood(
     if len(mood_evals) == 2:
         return f"A {mood_evals[0]} playlist with {mood_evals[1]} elements."
     if len(mood_evals) == 3:
-        return (
-            f"A {mood_evals[0]} playlist, that also has {mood_evals[1]} "
-            f"and {mood_evals[2]} elements."
-        )
+        return f"A {mood_evals[0]} playlist, that also has {mood_evals[1]} and {mood_evals[2]} elements."
 
 
 # Merges audio features (valence, energy, etc) with track details (song name, artist name, etc)
