@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, Request
+from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -91,11 +91,10 @@ class PlaylistResponse(BaseModel):
 
 class MoodResponse(BaseModel):
     mood: str
-    top_features: list
-    top_tracks: list
+    top_features: list[dict[str, str]]
+    top_tracks: list[dict[str, str]]
 
 
-# TODO: HOW TO PROTECT THIS ENDPOINT??
 # Performs OAuth token exchange using provided auth code from frontend, and creates user session
 @app.post("/spotify-auth", tags=["auth"], status_code=status.HTTP_204_NO_CONTENT)
 def exchange_token(code: str, request: Request):
@@ -107,11 +106,25 @@ def exchange_token(code: str, request: Request):
     request.session["refresh_token"] = token_info["refresh_token"]
 
 
+# Dependency to validate user session for API requests
+def get_access_token_from_session(request: Request) -> str:
+    session = request.session
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing session")
+
+    access_token = session.get("access_token")
+    refresh_token = session.get("refresh_token")
+    if not access_token or not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing access/refresh token in session"
+        )
+
+    return access_token
+
+
 # Logs out of user session
 @app.post("/logout", tags=["auth"], status_code=status.HTTP_204_NO_CONTENT)
-def logout_session(
-    request: Request,
-):
+def logout_session(request: Request) -> None:
     if not request.session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -122,15 +135,10 @@ def logout_session(
 
 # Retrives display name for current user
 @app.get("/user", tags=["spotify account"], status_code=status.HTTP_200_OK)
-def getUserDisplayName(request: Request) -> UserResponse:
+def getUserDisplayName(
+    request: Request, access_token: str = Depends(get_access_token_from_session)
+) -> UserResponse:
     try:
-        access_token = request.session.get("access_token", None)
-        if not access_token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Must authenticate through Spotify OAuth",
-            )
-
         sp = spotipy.Spotify(auth=access_token)
         user = sp.current_user()
         return {"display_name": user["display_name"]}
@@ -141,14 +149,9 @@ def getUserDisplayName(request: Request) -> UserResponse:
 
 # Retrieves all playlist names and their corresponding ID's
 @app.get("/playlists", tags=["spotify account"], status_code=status.HTTP_200_OK)
-def getUserPlaylists(request: Request) -> list[PlaylistResponse]:
-    access_token = request.session.get("access_token", None)
-    if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Must authenticate through Spotify OAuth",
-        )
-
+def getUserPlaylists(
+    request: Request, access_token: str = Depends(get_access_token_from_session)
+) -> list[PlaylistResponse]:
     sp = spotipy.Spotify(auth=access_token)
     playlists = sp.current_user_playlists()["items"]
 
@@ -161,8 +164,10 @@ def getUserPlaylists(request: Request) -> list[PlaylistResponse]:
 
 # Generates mood for given playlist, and returns top songs that contributed to this mood rating
 @app.get("/mood/{playlistId}", tags=["spotify account"], status_code=status.HTTP_200_OK)
-async def getPlaylistMood(playlistId: str, request: Request) -> MoodResponse:
-    access_token = request.session.get("access_token", None)
+async def getPlaylistMood(
+    playlistId: str, request: Request, access_token: str = Depends(get_access_token_from_session)
+) -> MoodResponse:
+    access_token = request.session.get("access_token")
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
