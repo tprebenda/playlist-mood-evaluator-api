@@ -89,10 +89,23 @@ class PlaylistResponse(BaseModel):
     id: str
 
 
+class TrackDetails(BaseModel):
+    id: str
+    name: str
+    album: str
+    artists: str
+    danceability: float
+    energy: float
+    speechiness: float
+    acousticness: float
+    instrumentalness: float
+    valence: float
+
+
 class MoodResponse(BaseModel):
     mood: str
-    top_features: list[dict[str, str]]
-    top_tracks: list[dict[str, str]]
+    top_features: list[str]
+    top_tracks: list[TrackDetails]
 
 
 # Performs OAuth token exchange using provided auth code from frontend, and creates user session
