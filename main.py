@@ -1,3 +1,4 @@
+import os
 from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,8 +8,10 @@ from spotipy.oauth2 import SpotifyOAuth
 
 app = FastAPI()
 
-# generated via cmd: 'openssl rand -hex 32'
-SECRET_KEY = "c813fdf7e5026818638730c587e417dbe58168f0fa2a05300a3392ca7e04ee01"
+
+CLIENT_ID = os.environ["CLIENT_ID"]
+CLIENT_SECRET = os.environ["CLIENT_SECRET"]
+SESSION_SECRET_KEY = os.environ["SESSION_SECRET_KEY"]
 
 origins = [
     # Disabled for production deployment (uncomment for local dev):
@@ -36,7 +39,7 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=SECRET_KEY,
+    secret_key=SESSION_SECRET_KEY,
     https_only=True,
     # 3600s = 1hr, the life of spotify access token
     max_age=3600,
@@ -45,8 +48,6 @@ app.add_middleware(
     domain=".playlistmoodevaluator.com",
 )
 
-CLIENT_ID = "5b9ee404632b45f6a6d6cc35824554a6"
-CLIENT_SECRET = "920902c5825344b4a9ebf76b4096db3a"
 # OAUTH_REDIRECT_URI needs to be registered in Spotify app hub, despite the fact that we don't use
 # spotipy for the actual OAuth (otherwise Spotify will reject the request)
 # OAUTH_REDIRECT_URI = "http://127.0.0.1:3000/callback"  # LOCAL DEV
