@@ -1,3 +1,4 @@
 fastapi[standard]==0.111.0
 spotipy==2.24.0
 itsdangerous==2.2.0
+more-itertools==10.7.0
