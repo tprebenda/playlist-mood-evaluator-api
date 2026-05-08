@@ -2,7 +2,9 @@ from pydantic import BaseModel
 from typing import Literal
 
 
-# ------ RESPONSE OBJECTS FROM API ------
+# ------ Response Schemas ------
+
+
 class PlaylistResponse(BaseModel):
     name: str
     id: str
@@ -13,6 +15,7 @@ class TrackDetails(BaseModel):
     name: str
     album: str
     artists: str
+    url: str
     danceability: float
     energy: float
     speechiness: float
@@ -27,7 +30,9 @@ class MoodResponse(BaseModel):
     top_tracks: list[TrackDetails]
 
 
-# ------ TYPES FOR SPOTIFY/SPOTIPY ------
+# ------ Spotify / Spotipy Types ------
+
+
 # https://developer.spotify.com/documentation/web-api/reference/get-audio-features
 class AudioFeaturesObject(BaseModel):
     id: str
@@ -51,9 +56,5 @@ class AudioFeaturesObject(BaseModel):
     uri: str
 
 
-# ------ CONSTANTS ------
-EMPTY_MOOD_RESPONSE = MoodResponse(
-    mood="No Mood (No Tracks Found). Playlist is either empty or a specialized playlist.",
-    top_features=["none"],
-    top_tracks=[],
-)
+# Maps track IDs to their audio feature scores (e.g. {"track_id": 0.85})
+AudioFeatureMap = dict[str, float]
